@@ -25,7 +25,7 @@ public class Main {
                 Publisher publisher = new Publisher(factory.newConnection(), Main.EXCHANGE_NAME);
                 for (int i = 0; i < 5; i++) {
                     try {
-                        publisher.publish("user created, id=" + i, "user.create");
+                        publisher.publish("{\"id\":121, \"name\":\"guanyiyao\"}", "user.create");
                     } catch (Exception e) {
                         e.printStackTrace();
                     }
@@ -33,7 +33,7 @@ public class Main {
 
                 for (int i = 0; i < 5; i++) {
                     try {
-                        publisher.publish("user deleted, id=" + i, "user.delete");
+                        publisher.publish("{\"id\":121}", "user.delete");
                     } catch (Exception e) {
                         e.printStackTrace();
                     }
