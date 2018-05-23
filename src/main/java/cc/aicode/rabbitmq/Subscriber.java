@@ -1,6 +1,7 @@
 package cc.aicode.rabbitmq;
 
 import com.rabbitmq.client.*;
+import com.rabbitmq.client.impl.LongStringHelper;
 
 import java.io.IOException;
 import java.util.HashMap;
@@ -39,7 +40,7 @@ public class Subscriber extends PubSub {
          * @param message    订阅到的消息内容
          * @param routingKey 路由KEY
          */
-        void handle(String message, String routingKey);
+        void handle(String message, String routingKey) throws Exception;
     }
 
     /**
@@ -65,15 +66,17 @@ public class Subscriber extends PubSub {
         channel.queueDeclare(queueName, true, false, false, null);
         channel.queueDeclare(queueName + "@failed", true, false, false, null);
 
-        Map<String, Object> arguments = new HashMap<String, Object>();
+        Map<String, Object> arguments = new HashMap<>();
         arguments.put("x-dead-letter-exchange", exchangeName());
         arguments.put("x-message-ttl", 30 * 1000);
+        arguments.put("x-dead-letter-routing-key", queueName);
         channel.queueDeclare(queueName + "@retry", true, false, false, arguments);
 
         // 绑定监听队列到Exchange
         channel.queueBind(queueName, exchangeName(), routingKey);
-        channel.queueBind(queueName + "@failed", failedExchangeName(), routingKey);
-        channel.queueBind(queueName + "@retry", retryExchangeName(), routingKey);
+        channel.queueBind(queueName, exchangeName(), queueName);
+        channel.queueBind(queueName + "@failed", failedExchangeName(), queueName);
+        channel.queueBind(queueName + "@retry", retryExchangeName(), queueName);
 
         return this;
     }
@@ -97,18 +100,28 @@ public class Subscriber extends PubSub {
                     log("Received '" + message + "'");
 
                     // 消息处理函数
-                    handler.handle(message, envelope.getRoutingKey());
+                    handler.handle(message, getOrigRoutingKey(properties, envelope.getRoutingKey()));
 
                 } catch (Exception e) {
                     long retryCount = getRetryCount(properties);
                     if (retryCount > 3) {
                         // 重试次数大于3次，则自动加入到失败队列
                         log("failed. send message to failed exchange");
-                        channel.basicPublish(failedExchangeName(), envelope.getRoutingKey(), MessageProperties.PERSISTENT_BASIC, body);
+
+                        Map<String, Object> headers = new HashMap<>();
+                        headers.put("x-orig-routing-key", getOrigRoutingKey(properties, envelope.getRoutingKey()));
+                        channel.basicPublish(failedExchangeName(), queueName, createOverrideProperties(properties, headers), body);
                     } else {
                         // 重试次数小于3，则加入到重试队列，30s后再重试
                         log("exception. send message to retry exchange");
-                        channel.basicPublish(retryExchangeName(), envelope.getRoutingKey(), properties, body);
+
+                        Map<String, Object> headers = properties.getHeaders();
+                        if (headers == null) {
+                            headers = new HashMap<>();
+                        }
+
+                        headers.put("x-orig-routing-key", getOrigRoutingKey(properties, envelope.getRoutingKey()));
+                        channel.basicPublish(retryExchangeName(), queueName, createOverrideProperties(properties, headers), body);
                     }
                 }
 
@@ -157,9 +170,57 @@ public class Subscriber extends PubSub {
                     }
                 }
             }
-        } catch (Exception e) {
+        } catch (Exception ignored) {
         }
 
         return retryCount;
+    }
+
+    /**
+     * 获取原始的routingKey
+     *
+     * @param properties   AMQP消息属性
+     * @param defaultValue 默认值
+     * @return 原始的routing-key
+     */
+    protected String getOrigRoutingKey(AMQP.BasicProperties properties, String defaultValue) {
+        String routingKey = defaultValue;
+        try {
+            Map<String, Object> headers = properties.getHeaders();
+            if (headers != null) {
+                if (headers.containsKey("x-orig-routing-key")) {
+                    routingKey = headers.get("x-orig-routing-key").toString();
+                }
+            }
+        } catch (Exception ignored) {
+        }
+
+        return routingKey;
+    }
+
+    /**
+     * 从已有的properties中创建新的properties，使用提供的headers字段覆盖已有的headers
+     *
+     * @param properties AMQP属性
+     * @param headers    要覆盖的headers
+     * @return 新创建的properties
+     */
+    protected AMQP.BasicProperties createOverrideProperties(AMQP.BasicProperties properties, Map<String, Object> headers) {
+        return new AMQP.BasicProperties(
+                properties.getContentType(),
+                properties.getContentEncoding(),
+                headers,
+                properties.getDeliveryMode(),
+                properties.getPriority(),
+                properties.getCorrelationId(),
+                properties.getReplyTo(),
+                properties.getExpiration(),
+                properties.getMessageId(),
+                properties.getTimestamp(),
+                properties.getType(),
+                properties.getUserId(),
+                properties.getAppId(),
+                properties.getClusterId()
+        );
     }
 }

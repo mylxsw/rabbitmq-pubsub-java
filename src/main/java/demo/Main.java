@@ -23,7 +23,7 @@ public class Main {
         new Thread(() -> {
             try {
                 Publisher publisher = new Publisher(factory.newConnection(), Main.EXCHANGE_NAME);
-                for (int i = 0; i < 5; i++) {
+                for (int i = 0; i < 1; i++) {
                     try {
                         publisher.publish("{\"id\":121, \"name\":\"guanyiyao\"}", "user.create");
                     } catch (Exception e) {
@@ -31,13 +31,13 @@ public class Main {
                     }
                 }
 
-                for (int i = 0; i < 5; i++) {
-                    try {
-                        publisher.publish("{\"id\":121}", "user.delete");
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                    }
-                }
+//                for (int i = 0; i < 5; i++) {
+//                    try {
+//                        publisher.publish("{\"id\":121}", "user.delete");
+//                    } catch (Exception e) {
+//                        e.printStackTrace();
+//                    }
+//                }
             } catch (Exception e) {
                 e.printStackTrace();
             }
@@ -47,7 +47,7 @@ public class Main {
         Thread.sleep(3000);
 
         // 订阅消息
-        new Subscriber(factory.newConnection(), Main.EXCHANGE_NAME).init("user-monitor", "user.*").subscribe((message, routingKey) -> {
+        new Subscriber(factory.newConnection(), Main.EXCHANGE_NAME).init("user_monitor", "user.*").subscribe((message, routingKey) -> {
             // TODO 业务逻辑
             System.out.printf("    <%s> message consumed: %s\n", routingKey, message);
             try {
@@ -55,6 +55,7 @@ public class Main {
             } catch (InterruptedException e) {
                 e.printStackTrace();
             }
+            throw new Exception("出错了");
         });
     }
 }
